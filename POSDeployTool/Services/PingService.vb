@@ -1,4 +1,5 @@
-﻿Imports System.Diagnostics
+﻿Imports POSDeployTool.Contracts
+Imports System.Diagnostics
 Imports System.Net.NetworkInformation
 Imports System.Threading
 Imports System.Threading.Tasks
@@ -7,12 +8,13 @@ Imports POSDeployTool.Models
 Namespace Services
 
     Public Class PingService
+        Implements IPingService
 
         Public Async Function CheckAsync(
             ByVal host As String,
             ByVal timeoutMilliseconds As Integer,
             ByVal cancellationToken As CancellationToken
-        ) As Task(Of PingCheckResult)
+        ) As Task(Of PingCheckResult) Implements IPingService.CheckAsync
 
             Dim result As New PingCheckResult() With {
                 .Host = If(host, String.Empty),

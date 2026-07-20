@@ -1,190 +1,112 @@
-﻿Imports System
-Imports System.Collections.Generic
-Imports System.Linq
-Imports System.Threading
-Imports System.Threading.Tasks
-Imports System.Windows.Forms
+﻿Imports System.Threading
+Imports POSDeployTool.Application
+Imports POSDeployTool.Contracts
 Imports POSDeployTool.Models
+Imports POSDeployTool.Presentation
 Imports POSDeployTool.Services
 
 Public Class frmMain
 
-    Private ReadOnly _storeConfigService As StoreConfigService
-    Private ReadOnly _pingService As PingService
-    Private ReadOnly _winRmService As WinRmService
+    Private ReadOnly _storeConfigService As IStoreConfigService
+    Private ReadOnly _connectionController As ConnectionCheckController
     Private ReadOnly _storeBindingSource As BindingSource
     Private ReadOnly _settings As AppSettings
-
 
     Private _stores As List(Of StoreInfo)
     Private _operationCancellation As CancellationTokenSource
     Private _isOperationRunning As Boolean
 
     Public Sub New()
-
         InitializeComponent()
 
-        _storeConfigService = New StoreConfigService()
-        _pingService = New PingService()
-        _winRmService = New WinRmService()
-        _storeBindingSource = New BindingSource()
         _settings = New AppSettings()
+        _storeConfigService = New StoreConfigService()
+        _connectionController = New ConnectionCheckController(New PingService(), New WinRmService(), _settings)
+        _storeBindingSource = New BindingSource()
         _stores = New List(Of StoreInfo)()
 
+        AddHandler _connectionController.StoreUpdated, AddressOf ConnectionController_StoreUpdated
+        AddHandler _connectionController.LogGenerated, AddressOf ConnectionController_LogGenerated
 
         dgvStores.DataSource = _storeBindingSource
-
     End Sub
 
-    Private Sub frmMain_Load(
-        ByVal sender As Object,
-        ByVal e As EventArgs
-    ) Handles MyBase.Load
-
+    Private Sub frmMain_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         Try
             AppPaths.CreateFolders()
-
             AddLog("POSDeployTool started.")
             LoadStoreConfiguration()
-
         Catch ex As Exception
             HandleConfigurationError(ex)
         End Try
-
     End Sub
 
     Private Sub LoadStoreConfiguration()
-
         SetBusyState(True, "Loading store configuration...")
 
         Try
             _stores = _storeConfigService.LoadStores()
+            For Each store As StoreInfo In _stores
+                EnsureConnectionState(store)
+            Next
 
             ApplyStoreFilter()
-
-            AddLog(
-                String.Format(
-                    "Loaded {0} store(s) from {1}",
-                    _stores.Count,
-                    AppPaths.StoreConfigFile))
-
-            Me.Text =
-                String.Format(
-                    "POS Deploy Tool - {0} Store(s)",
-                    _stores.Count)
-
+            AddLog(String.Format("Loaded {0} store(s) from {1}", _stores.Count, AppPaths.StoreConfigFile))
+            Text = String.Format("POS Deploy Tool - {0} Store(s)", _stores.Count)
         Finally
             SetBusyState(False, "Ready")
         End Try
-
     End Sub
 
     Private Sub ApplyStoreFilter()
-
         Dim filterText As String = txtFilter.Text.Trim()
         Dim filteredStores As List(Of StoreInfo)
 
         If String.IsNullOrWhiteSpace(filterText) Then
-
-            filteredStores =
-                _stores.
-                Where(Function(store) store.Enabled).
-                ToList()
-
+            filteredStores = _stores.Where(Function(store) store.Enabled).ToList()
         Else
-
-            filteredStores =
-                _stores.
-                Where(
-                    Function(store)
-                        Return store.Enabled AndAlso
-                               MatchesFilter(store, filterText)
-                    End Function).
-                ToList()
-
+            filteredStores = _stores.Where(Function(store) store.Enabled AndAlso MatchesFilter(store, filterText)).ToList()
         End If
 
         _storeBindingSource.DataSource = filteredStores
         _storeBindingSource.ResetBindings(False)
-
         InitializeStatusColumns()
         UpdateStoreCounters()
         UpdateActionButtons()
-
     End Sub
 
-    Private Shared Function MatchesFilter(
-        ByVal store As StoreInfo,
-        ByVal filterText As String
-    ) As Boolean
-
+    Private Shared Function MatchesFilter(store As StoreInfo, filterText As String) As Boolean
         Return ContainsIgnoreCase(store.StoreCode, filterText) OrElse
                ContainsIgnoreCase(store.StoreName, filterText) OrElse
                ContainsIgnoreCase(store.ComputerName, filterText) OrElse
                ContainsIgnoreCase(store.IpAddress, filterText)
-
     End Function
 
-    Private Shared Function ContainsIgnoreCase(
-        ByVal value As String,
-        ByVal searchValue As String
-    ) As Boolean
-
-        If String.IsNullOrEmpty(value) Then
-            Return False
-        End If
-
-        Return value.IndexOf(
-            searchValue,
-            StringComparison.OrdinalIgnoreCase) >= 0
-
+    Private Shared Function ContainsIgnoreCase(value As String, searchValue As String) As Boolean
+        Return Not String.IsNullOrEmpty(value) AndAlso value.IndexOf(searchValue, StringComparison.OrdinalIgnoreCase) >= 0
     End Function
 
     Private Sub InitializeStatusColumns()
-
         For Each row As DataGridViewRow In dgvStores.Rows
+            If row.IsNewRow Then Continue For
+            Dim store As StoreInfo = TryCast(row.DataBoundItem, StoreInfo)
+            If store Is Nothing Then Continue For
 
-            If row.IsNewRow Then
-                Continue For
-            End If
-
-            row.Cells("colPing").Value = "-"
-            row.Cells("colWinRm").Value = "-"
-            row.Cells("colVersion").Value = "-"
-            row.Cells("colStatus").Value = "Ready"
-
+            RefreshStoreRow(store)
+            If dgvStores.Columns.Contains("colVersion") Then row.Cells("colVersion").Value = "-"
         Next
-
     End Sub
 
-    Private Async Sub btnCheckConnection_Click(
-        ByVal sender As Object,
-        ByVal e As EventArgs
-    ) Handles btnCheckConnection.Click
-
-        If _isOperationRunning Then
-            Return
-        End If
+    Private Async Sub btnCheckConnection_Click(sender As Object, e As EventArgs) Handles btnCheckConnection.Click
+        If _isOperationRunning Then Return
 
         dgvStores.EndEdit()
         _storeBindingSource.EndEdit()
 
-        Dim selectedStores As List(Of StoreInfo) =
-            _stores.
-            Where(
-                Function(store)
-                    Return store.Enabled AndAlso store.Selected
-                End Function).
-            ToList()
+        Dim selectedStores As List(Of StoreInfo) = _stores.Where(Function(store) store.Enabled AndAlso store.Selected).ToList()
 
         If selectedStores.Count = 0 Then
-
-            MessageBox.Show(
-                "กรุณาเลือก Store อย่างน้อย 1 รายการ",
-                "Check Connection",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information)
-
+            MessageBox.Show("กรุณาเลือก Store อย่างน้อย 1 รายการ", "Check Connection", MessageBoxButtons.OK, MessageBoxIcon.Information)
             Return
         End If
 
@@ -193,42 +115,21 @@ Public Class frmMain
         Try
             _isOperationRunning = True
             SetOperationState(True, "Checking connection...")
-
-            AddLog(
-                String.Format(
-                    "Starting connection check for {0} store(s). Parallel tasks: {1}, Ping timeout: {2} ms, WinRM timeout: {3} ms.",
-                    selectedStores.Count,
-                    _settings.MaxParallelTasks,
-                    _settings.ConnectionTimeoutMilliseconds,
-                    _settings.CommandTimeoutMilliseconds))
+            AddLog(String.Format("Starting connection check for {0} store(s). Parallel tasks: {1}, Ping timeout: {2} ms, WinRM timeout: {3} ms.", selectedStores.Count, _settings.MaxParallelTasks, _settings.ConnectionTimeoutMilliseconds, _settings.CommandTimeoutMilliseconds))
 
             ResetSelectedStoreStatus(selectedStores)
-
-            Await CheckSelectedStoresAsync(
-                selectedStores,
-                _operationCancellation.Token)
+            Await _connectionController.CheckAsync(selectedStores, _operationCancellation.Token)
 
             lblStatus.Text = "Check completed"
             AddLog("Connection check completed.")
-
         Catch ex As OperationCanceledException
-
             lblStatus.Text = "Cancelled"
             AddLog("Connection check was cancelled by user.")
-
         Catch ex As Exception
-
             lblStatus.Text = "Check failed"
-            AddLog("Ping check failed: " & ex.ToString())
-
-            MessageBox.Show(
-                ex.Message,
-                "Connection Check Error",
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Error)
-
+            AddLog("Connection check failed: " & ex.ToString())
+            MessageBox.Show(ex.Message, "Connection Check Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
         Finally
-
             _isOperationRunning = False
             SetOperationState(False, lblStatus.Text)
 
@@ -236,554 +137,208 @@ Public Class frmMain
                 _operationCancellation.Dispose()
                 _operationCancellation = Nothing
             End If
-
         End Try
-
     End Sub
 
-    Private Async Function CheckSelectedStoresAsync(
-        ByVal stores As IList(Of StoreInfo),
-        ByVal cancellationToken As CancellationToken
-    ) As Task
-
-        Dim maxParallelTasks As Integer =
-            Math.Max(1, _settings.MaxParallelTasks)
-
-        Using semaphore As New SemaphoreSlim(
-            maxParallelTasks,
-            maxParallelTasks)
-
-            Dim tasks As New List(Of Task)()
-
-            For Each store As StoreInfo In stores
-
-                cancellationToken.ThrowIfCancellationRequested()
-
-                tasks.Add(
-                    CheckSingleStoreAsync(
-                        store,
-                        semaphore,
-                        cancellationToken))
-
-            Next
-
-            Await Task.WhenAll(tasks)
-
-        End Using
-
-    End Function
-
-    Private Async Function CheckSingleStoreAsync(
-    ByVal store As StoreInfo,
-    ByVal semaphore As SemaphoreSlim,
-    ByVal cancellationToken As CancellationToken
-) As Task
-
-        Await semaphore.WaitAsync(cancellationToken)
-
-        Try
-            cancellationToken.ThrowIfCancellationRequested()
-
-            UpdateStoreRow(
-            store,
-            "Checking...",
-            "-",
-            "Checking Ping")
-
-            Dim pingResult As PingCheckResult =
-            Await _pingService.CheckAsync(
-                store.IpAddress,
-                _settings.ConnectionTimeoutMilliseconds,
-                cancellationToken)
-
-            Dim pingDisplay As String
-
-            If pingResult.Success Then
-                pingDisplay =
-                String.Format(
-                    "Online ({0} ms)",
-                    pingResult.ResponseTimeMilliseconds)
-            Else
-                pingDisplay = pingResult.Status
-            End If
-
-            AddLog(
-            String.Format(
-                "[{0}/{1}] Ping {2}: {3} - {4}",
-                store.StoreCode,
-                store.ComputerName,
-                store.IpAddress,
-                pingResult.Status,
-                pingResult.Message))
-
-            If Not pingResult.Success Then
-
-                UpdateStoreRow(
-                store,
-                pingDisplay,
-                "Skipped",
-                pingResult.Status)
-
-                Return
-
-            End If
-
-            UpdateStoreRow(
-            store,
-            pingDisplay,
-            "Checking...",
-            "Checking WinRM")
-
-            Dim winRmResult As WinRmCheckResult =
-            Await _winRmService.CheckAsync(
-                store,
-                _settings.CommandTimeoutMilliseconds,
-                cancellationToken)
-
-            Dim winRmDisplay As String =
-            winRmResult.Status
-
-            If winRmResult.Success AndAlso
-           Not String.IsNullOrWhiteSpace(
-               winRmResult.HostName) Then
-
-                winRmDisplay =
-                String.Format(
-                    "{0} ({1})",
-                    winRmResult.Status,
-                    winRmResult.HostName)
-
-            End If
-
-            UpdateStoreRow(
-            store,
-            pingDisplay,
-            winRmDisplay,
-            winRmResult.Status)
-
-            AddLog(
-            String.Format(
-                "[{0}/{1}] WinRM {2}: {3} - {4} ({5} ms)",
-                store.StoreCode,
-                store.ComputerName,
-                store.IpAddress,
-                winRmResult.Status,
-                winRmResult.Message,
-                winRmResult.DurationMilliseconds))
-
-        Catch ex As OperationCanceledException
-
-            UpdateStoreRow(
-            store,
-            "Cancelled",
-            "Cancelled",
-            "Cancelled")
-
-            Throw
-
-        Catch ex As Exception
-
-            UpdateStoreRow(
-            store,
-            "Error",
-            "Error",
-            "Error")
-
-            AddLog(
-            String.Format(
-                "[{0}/{1}] Connection check error: {2}",
-                store.StoreCode,
-                store.ComputerName,
-                ex.Message))
-
-        Finally
-            semaphore.Release()
-        End Try
-
-    End Function
-
-    Private Sub UpdateStoreRow(
-    ByVal store As StoreInfo,
-    ByVal pingStatus As String,
-    ByVal winRmStatus As String,
-    ByVal overallStatus As String
-)
-
-        If Me.IsDisposed Then
-            Return
-        End If
-
-        If Me.InvokeRequired Then
-
-            Me.BeginInvoke(
-            New Action(
-                Sub()
-                    UpdateStoreRow(
-                        store,
-                        pingStatus,
-                        winRmStatus,
-                        overallStatus)
-                End Sub))
-
-            Return
-        End If
-
-        Dim row As DataGridViewRow =
-        FindStoreRow(store)
-
-        If row Is Nothing Then
-            Return
-        End If
-
-        row.Cells("colPing").Value = pingStatus
-        row.Cells("colWinRm").Value = winRmStatus
-        row.Cells("colStatus").Value = overallStatus
-
+    Private Sub ConnectionController_StoreUpdated(sender As Object, e As ConnectionCheckProgressEventArgs)
+        RefreshStoreRow(e.Store)
     End Sub
 
-    Private Function FindStoreRow(
-        ByVal store As StoreInfo
-    ) As DataGridViewRow
+    Private Sub ConnectionController_LogGenerated(sender As Object, e As ConnectionCheckProgressEventArgs)
+        AddLog(e.Message)
+    End Sub
 
+    Private Sub RefreshStoreRow(store As StoreInfo)
+        If store Is Nothing OrElse IsDisposed OrElse Disposing Then Return
+
+        If InvokeRequired Then
+            Try
+                BeginInvoke(New Action(Of StoreInfo)(AddressOf RefreshStoreRow), store)
+            Catch ex As InvalidOperationException
+            Catch ex As ObjectDisposedException
+            End Try
+            Return
+        End If
+
+        Dim row As DataGridViewRow = FindStoreRow(store)
+        If row Is Nothing Then Return
+
+        EnsureConnectionState(store)
+
+        If dgvStores.Columns.Contains("colPing") Then row.Cells("colPing").Value = ConnectionStatusPresenter.BuildPingText(store.Connection)
+        If dgvStores.Columns.Contains("colWinRm") Then row.Cells("colWinRm").Value = ConnectionStatusPresenter.BuildWinRmText(store.Connection)
+        If dgvStores.Columns.Contains("colStatus") Then row.Cells("colStatus").Value = ConnectionStatusPresenter.BuildOverallText(store.Connection)
+
+        row.DefaultCellStyle.BackColor = ConnectionStatusPresenter.ResolveBackColor(store.Connection)
+        row.DefaultCellStyle.ForeColor = SystemColors.ControlText
+
+        UpdateStoreCounters()
+        UpdateActionButtons()
+    End Sub
+
+    Private Function FindStoreRow(store As StoreInfo) As DataGridViewRow
         For Each row As DataGridViewRow In dgvStores.Rows
-
-            If row.IsNewRow Then
-                Continue For
-            End If
-
-            Dim rowStore As StoreInfo =
-                TryCast(row.DataBoundItem, StoreInfo)
-
-            If rowStore Is store Then
-                Return row
-            End If
-
-            If rowStore IsNot Nothing AndAlso
-               String.Equals(
-                   rowStore.StoreCode,
-                   store.StoreCode,
-                   StringComparison.OrdinalIgnoreCase) Then
-
-                Return row
-
-            End If
-
+            If row.IsNewRow Then Continue For
+            Dim rowStore As StoreInfo = TryCast(row.DataBoundItem, StoreInfo)
+            If rowStore Is store Then Return row
+            If rowStore IsNot Nothing AndAlso String.Equals(rowStore.StoreCode, store.StoreCode, StringComparison.OrdinalIgnoreCase) Then Return row
         Next
-
         Return Nothing
-
     End Function
 
-    Private Sub ResetSelectedStoreStatus(
-        ByVal selectedStores As IEnumerable(Of StoreInfo)
-    )
-
-        For Each store As StoreInfo In selectedStores
-
-            Dim row As DataGridViewRow =
-                FindStoreRow(store)
-
-            If row Is Nothing Then
-                Continue For
-            End If
-
-            row.Cells("colPing").Value = "Waiting..."
-            row.Cells("colStatus").Value = "Queued"
-
-        Next
-
+    Private Shared Sub EnsureConnectionState(store As StoreInfo)
+        If store IsNot Nothing AndAlso store.Connection Is Nothing Then store.Connection = New ConnectionState()
     End Sub
 
-    Private Sub btnStop_Click(
-        ByVal sender As Object,
-        ByVal e As EventArgs
-    ) Handles btnStop.Click
+    Private Sub ResetSelectedStoreStatus(stores As IEnumerable(Of StoreInfo))
+        For Each store As StoreInfo In stores
+            EnsureConnectionState(store)
+            store.Connection.Reset()
+            store.Connection.OverallStatus = "Queued"
+            RefreshStoreRow(store)
+        Next
+    End Sub
 
-        If _operationCancellation Is Nothing Then
-            Return
-        End If
-
-        If _operationCancellation.IsCancellationRequested Then
-            Return
-        End If
-
+    Private Sub btnStop_Click(sender As Object, e As EventArgs) Handles btnStop.Click
+        If _operationCancellation Is Nothing OrElse _operationCancellation.IsCancellationRequested Then Return
         lblStatus.Text = "Cancelling..."
         btnStop.Enabled = False
-
         AddLog("Cancellation requested by user.")
         _operationCancellation.Cancel()
-
     End Sub
 
-    Private Sub btnReload_Click(
-        ByVal sender As Object,
-        ByVal e As EventArgs
-    ) Handles btnReload.Click
-
-        If _isOperationRunning Then
-            Return
-        End If
-
+    Private Sub btnReload_Click(sender As Object, e As EventArgs) Handles btnReload.Click
+        If _isOperationRunning Then Return
         Try
             AddLog("Reloading store configuration...")
             LoadStoreConfiguration()
-
         Catch ex As Exception
             HandleConfigurationError(ex)
         End Try
-
     End Sub
 
-    Private Sub txtFilter_TextChanged(
-        ByVal sender As Object,
-        ByVal e As EventArgs
-    ) Handles txtFilter.TextChanged
-
-        If _isOperationRunning Then
-            Return
-        End If
-
-        ApplyStoreFilter()
-
+    Private Sub txtFilter_TextChanged(sender As Object, e As EventArgs) Handles txtFilter.TextChanged
+        If Not _isOperationRunning Then ApplyStoreFilter()
     End Sub
 
-    Private Sub dgvStores_CurrentCellDirtyStateChanged(
-        ByVal sender As Object,
-        ByVal e As EventArgs
-    ) Handles dgvStores.CurrentCellDirtyStateChanged
-
-        If dgvStores.IsCurrentCellDirty Then
-            dgvStores.CommitEdit(
-                DataGridViewDataErrorContexts.Commit)
-        End If
-
+    Private Sub dgvStores_CurrentCellDirtyStateChanged(sender As Object, e As EventArgs) Handles dgvStores.CurrentCellDirtyStateChanged
+        If dgvStores.IsCurrentCellDirty Then dgvStores.CommitEdit(DataGridViewDataErrorContexts.Commit)
     End Sub
 
-    Private Sub dgvStores_CellValueChanged(
-        ByVal sender As Object,
-        ByVal e As DataGridViewCellEventArgs
-    ) Handles dgvStores.CellValueChanged
-
-        If e.RowIndex < 0 Then
-            Return
-        End If
-
+    Private Sub dgvStores_CellValueChanged(sender As Object, e As DataGridViewCellEventArgs) Handles dgvStores.CellValueChanged
+        If e.RowIndex < 0 OrElse e.ColumnIndex < 0 Then Return
         If dgvStores.Columns(e.ColumnIndex).Name = "colSelected" Then
             UpdateStoreCounters()
             UpdateActionButtons()
         End If
-
     End Sub
 
-    Private Sub btnClearLog_Click(
-        ByVal sender As Object,
-        ByVal e As EventArgs
-    ) Handles btnClearLog.Click
-
+    Private Sub btnClearLog_Click(sender As Object, e As EventArgs) Handles btnClearLog.Click
         rtbLog.Clear()
         AddLog("On-screen log cleared.")
-
     End Sub
 
     Private Sub UpdateStoreCounters()
+        Dim visibleStores As List(Of StoreInfo) = GetVisibleStores()
+        Dim selectedCount As Integer = visibleStores.Where(Function(store) store.Selected).Count()
+        Dim connectedCount As Integer = visibleStores.Where(Function(store) IsConnected(store)).Count()
+        Dim deployableCount As Integer = visibleStores.Where(Function(store) store.Selected AndAlso IsDeployable(store)).Count()
 
-        Dim selectedCount As Integer = 0
-
-        For Each row As DataGridViewRow In dgvStores.Rows
-
-            If row.IsNewRow Then
-                Continue For
-            End If
-
-            Dim value As Object =
-                row.Cells("colSelected").Value
-
-            If value IsNot Nothing AndAlso
-               Convert.ToBoolean(value) Then
-
-                selectedCount += 1
-
-            End If
-
-        Next
-
-        lblSelectedCount.Text =
-            String.Format(
-                "Selected: {0}",
-                selectedCount)
-
-        lblTotalCount.Text =
-            String.Format(
-                "Total: {0}",
-                dgvStores.Rows.Count)
-
+        lblSelectedCount.Text = String.Format("Selected: {0} | Connected: {1} | Deployable: {2}", selectedCount, connectedCount, deployableCount)
+        lblTotalCount.Text = String.Format("Total: {0}", visibleStores.Count)
     End Sub
 
-    Private Function GetSelectedVisibleStoreCount() As Integer
+    Private Shared Function IsConnected(store As StoreInfo) As Boolean
+        EnsureConnectionState(store)
+        Return store.Connection.WinRmStatus = ConnectionStatus.Connected
+    End Function
 
-        Dim selectedCount As Integer = 0
+    Private Shared Function IsDeployable(store As StoreInfo) As Boolean
+        EnsureConnectionState(store)
+        Return store.Connection.CanDeploy
+    End Function
 
+    Private Function GetVisibleStores() As List(Of StoreInfo)
+        Dim result As New List(Of StoreInfo)()
         For Each row As DataGridViewRow In dgvStores.Rows
-
-            If row.IsNewRow Then
-                Continue For
-            End If
-
-            Dim value As Object =
-                row.Cells("colSelected").Value
-
-            If value IsNot Nothing AndAlso
-               Convert.ToBoolean(value) Then
-
-                selectedCount += 1
-
-            End If
-
+            If row.IsNewRow Then Continue For
+            Dim store As StoreInfo = TryCast(row.DataBoundItem, StoreInfo)
+            If store IsNot Nothing Then result.Add(store)
         Next
+        Return result
+    End Function
 
-        Return selectedCount
-
+    Private Function HasDeployableSelectedStores() As Boolean
+        Return _stores.Any(Function(store) store IsNot Nothing AndAlso store.Enabled AndAlso store.Selected AndAlso IsDeployable(store))
     End Function
 
     Private Sub UpdateActionButtons()
-
-        Dim hasSelectedStores As Boolean =
-            GetSelectedVisibleStoreCount() > 0
-
-        btnCheckConnection.Enabled =
-            Not _isOperationRunning AndAlso
-            hasSelectedStores
-
-        btnDeploy.Enabled = False
+        Dim hasSelectedStores As Boolean = GetVisibleStores().Any(Function(store) store.Selected)
+        btnCheckConnection.Enabled = Not _isOperationRunning AndAlso hasSelectedStores
+        btnDeploy.Enabled = Not _isOperationRunning AndAlso HasDeployableSelectedStores()
         btnStop.Enabled = _isOperationRunning
-
     End Sub
 
-    Private Sub SetBusyState(
-        ByVal isBusy As Boolean,
-        ByVal statusText As String
-    )
-
+    Private Sub SetBusyState(isBusy As Boolean, statusText As String)
         btnReload.Enabled = Not isBusy
         txtFilter.Enabled = Not isBusy
-
         lblStatus.Text = statusText
-        Me.UseWaitCursor = isBusy
-
-        Application.DoEvents()
-
+        UseWaitCursor = isBusy
+        System.Windows.Forms.Application.DoEvents()
     End Sub
 
-    Private Sub SetOperationState(
-        ByVal isRunning As Boolean,
-        ByVal statusText As String
-    )
-
+    Private Sub SetOperationState(isRunning As Boolean, statusText As String)
         btnReload.Enabled = Not isRunning
         btnCheckConnection.Enabled = Not isRunning
         btnDeploy.Enabled = False
         btnStop.Enabled = isRunning
-
         txtFilter.Enabled = Not isRunning
         dgvStores.Enabled = Not isRunning
-
         lblStatus.Text = statusText
-        Me.UseWaitCursor = False
-
-        If Not isRunning Then
-            UpdateActionButtons()
-        End If
-
+        UseWaitCursor = False
+        If Not isRunning Then UpdateActionButtons()
     End Sub
 
-    Private Sub AddLog(ByVal message As String)
+    Private Sub AddLog(message As String)
+        If IsDisposed OrElse Disposing Then Return
 
-        If Me.IsDisposed Then
+        If InvokeRequired Then
+            Try
+                BeginInvoke(New Action(Of String)(AddressOf AddLog), message)
+            Catch ex As InvalidOperationException
+            Catch ex As ObjectDisposedException
+            End Try
             Return
         End If
 
-        If Me.InvokeRequired Then
-
-            Me.BeginInvoke(
-                New Action(Of String)(AddressOf AddLog),
-                message)
-
-            Return
-        End If
-
-        Dim logLine As String =
-            String.Format(
-                "{0:yyyy-MM-dd HH:mm:ss}  {1}",
-                DateTime.Now,
-                message)
-
-        rtbLog.AppendText(
-            logLine &
-            Environment.NewLine)
-
+        Dim logLine As String = String.Format("{0:yyyy-MM-dd HH:mm:ss}  {1}", DateTime.Now, message)
+        rtbLog.AppendText(logLine & Environment.NewLine)
         rtbLog.SelectionStart = rtbLog.TextLength
         rtbLog.ScrollToCaret()
-
         FileLogger.Write(message)
-
     End Sub
 
-    Private Sub HandleConfigurationError(
-        ByVal ex As Exception
-    )
-
-        AddLog(
-            "Failed to load store configuration: " &
-            ex.ToString())
-
+    Private Sub HandleConfigurationError(ex As Exception)
+        AddLog("Failed to load store configuration: " & ex.ToString())
         lblStatus.Text = "Configuration Error"
-
-        MessageBox.Show(
-            ex.Message &
-            Environment.NewLine &
-            Environment.NewLine &
-            "Configuration file:" &
-            Environment.NewLine &
-            AppPaths.StoreConfigFile,
-            "Configuration Error",
-            MessageBoxButtons.OK,
-            MessageBoxIcon.Error)
-
+        MessageBox.Show(ex.Message & Environment.NewLine & Environment.NewLine & "Configuration file:" & Environment.NewLine & AppPaths.StoreConfigFile, "Configuration Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
     End Sub
 
-    Private Sub frmMain_FormClosing(
-        ByVal sender As Object,
-        ByVal e As FormClosingEventArgs
-    ) Handles MyBase.FormClosing
+    Private Sub frmMain_FormClosing(sender As Object, e As FormClosingEventArgs) Handles MyBase.FormClosing
+        If Not _isOperationRunning Then Return
 
-        If Not _isOperationRunning Then
-            Return
-        End If
-
-        Dim answer As DialogResult =
-            MessageBox.Show(
-                "มีการตรวจสอบ Connection กำลังทำงานอยู่" &
-                Environment.NewLine &
-                "ต้องการยกเลิกและปิดโปรแกรมหรือไม่?",
-                "POS Deploy Tool",
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Question)
-
+        Dim answer As DialogResult = MessageBox.Show("มีการตรวจสอบ Connection กำลังทำงานอยู่" & Environment.NewLine & "ต้องการยกเลิกและปิดโปรแกรมหรือไม่?", "POS Deploy Tool", MessageBoxButtons.YesNo, MessageBoxIcon.Question)
         If answer = DialogResult.No Then
             e.Cancel = True
             Return
         End If
 
-        If _operationCancellation IsNot Nothing Then
-            _operationCancellation.Cancel()
-        End If
-
+        If _operationCancellation IsNot Nothing Then _operationCancellation.Cancel()
     End Sub
 
-    Private Sub frmMain_FormClosed(
-        ByVal sender As Object,
-        ByVal e As FormClosedEventArgs
-    ) Handles MyBase.FormClosed
+    Private Sub frmMain_FormClosed(sender As Object, e As FormClosedEventArgs) Handles MyBase.FormClosed
+        RemoveHandler _connectionController.StoreUpdated, AddressOf ConnectionController_StoreUpdated
+        RemoveHandler _connectionController.LogGenerated, AddressOf ConnectionController_LogGenerated
 
         If _operationCancellation IsNot Nothing Then
             _operationCancellation.Dispose()
@@ -791,7 +346,6 @@ Public Class frmMain
         End If
 
         FileLogger.Write("POSDeployTool closed.")
-
     End Sub
 
 End Class

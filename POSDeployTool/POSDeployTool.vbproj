@@ -80,7 +80,15 @@
     <Import Include="System.Threading.Tasks" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="frmMain.vb" />
+    <Compile Include="Application\ConnectionCheckController.vb" />
+    <Compile Include="Application\ConnectionCheckProgressEventArgs.vb" />
+    <Compile Include="Contracts\IPingService.vb" />
+    <Compile Include="Contracts\IStoreConfigService.vb" />
+    <Compile Include="Contracts\IWinRmService.vb" />
+    <Compile Include="Presentation\ConnectionStatusPresenter.vb" />
+    <Compile Include="frmMain.vb">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="frmMain.Designer.vb">
       <DependentUpon>frmMain.vb</DependentUpon>
       <SubType>Form</SubType>
@@ -88,6 +96,7 @@
     <Compile Include="Helpers\AppPaths.vb" />
     <Compile Include="Helpers\FileLogger.vb" />
     <Compile Include="Models\AppSettings.vb" />
+    <Compile Include="Models\ConnectionState.vb" />
     <Compile Include="Models\PingCheckResult.vb" />
     <Compile Include="Models\StoreInfo.vb" />
     <Compile Include="Models\WinRmCheckResult.vb" />

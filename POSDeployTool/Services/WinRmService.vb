@@ -1,4 +1,5 @@
-﻿Imports System.Diagnostics
+﻿Imports POSDeployTool.Contracts
+Imports System.Diagnostics
 Imports System.IO
 Imports System.Text
 Imports System.Threading
@@ -8,12 +9,13 @@ Imports POSDeployTool.Models
 Namespace Services
 
     Public Class WinRmService
+        Implements IWinRmService
 
         Public Async Function CheckAsync(
             ByVal store As StoreInfo,
             ByVal timeoutMilliseconds As Integer,
             ByVal cancellationToken As CancellationToken
-        ) As Task(Of WinRmCheckResult)
+        ) As Task(Of WinRmCheckResult) Implements IWinRmService.CheckAsync
 
             If store Is Nothing Then
                 Throw New ArgumentNullException(NameOf(store))

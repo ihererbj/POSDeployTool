@@ -1,16 +1,18 @@
-﻿Imports System.IO
+﻿Imports POSDeployTool.Contracts
+Imports System.IO
 Imports Newtonsoft.Json
 Imports POSDeployTool.Models
 
 Namespace Services
 
     Public Class StoreConfigService
+        Implements IStoreConfigService
 
-        Public Function LoadStores() As List(Of StoreInfo)
+        Public Function LoadStores() As List(Of StoreInfo) Implements IStoreConfigService.LoadStores
             Return LoadStores(AppPaths.StoreConfigFile)
         End Function
 
-        Public Function LoadStores(ByVal filePath As String) As List(Of StoreInfo)
+        Public Function LoadStores(ByVal filePath As String) As List(Of StoreInfo) Implements IStoreConfigService.LoadStores
 
             If String.IsNullOrWhiteSpace(filePath) Then
                 Throw New ArgumentException(
