@@ -1,0 +1,37 @@
+﻿Namespace Models
+
+    Public Class StoreInfo
+
+        Public Sub New()
+            Selected = True
+            Enabled = True
+            Port = 5985
+            UseHttps = False
+            TargetPath = "C:\BCHKPOS"
+            BackupPath = "C:\Backup"
+        End Sub
+
+        Public Property Selected As Boolean
+        Public Property Enabled As Boolean
+        Public Property StoreCode As String
+        Public Property StoreName As String
+        Public Property IpAddress As String
+        Public Property ComputerName As String
+        Public Property Username As String
+        Public Property Password As String
+        Public Property Port As Integer
+        Public Property UseHttps As Boolean
+        Public Property TargetPath As String
+        Public Property BackupPath As String
+
+        Public Overrides Function ToString() As String
+            Return String.Format(
+                "{0} - {1} ({2})",
+                If(StoreCode, String.Empty),
+                If(StoreName, String.Empty),
+                If(IpAddress, String.Empty))
+        End Function
+
+    End Class
+
+End Namespace

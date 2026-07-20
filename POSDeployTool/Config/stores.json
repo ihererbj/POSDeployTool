@@ -1,0 +1,16 @@
+[
+  {
+    "Selected": true,
+    "Enabled": true,
+    "StoreCode": "75001",
+    "StoreName": "Store 75001",
+    "IpAddress": "172.30.220.171",
+    "ComputerName": "C75001102",
+    "Username": ".\\UPOS05",
+    "Password": "05@bigc",
+    "Port": 5985,
+    "UseHttps": false,
+    "TargetPath": "C:\\BCHKPOS",
+    "BackupPath": "C:\\Backup"
+  }
+]

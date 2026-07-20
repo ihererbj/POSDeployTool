@@ -37,4 +37,10 @@ Public NotInheritable Class AppPaths
 
     End Sub
 
+    Public Shared ReadOnly Property StoreConfigFile As String
+        Get
+            Return Path.Combine(ConfigPath, "stores.json")
+        End Get
+    End Property
+
 End Class
