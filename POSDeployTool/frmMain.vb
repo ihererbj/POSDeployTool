@@ -11,8 +11,10 @@ Public Class frmMain
 
     Private ReadOnly _storeConfigService As StoreConfigService
     Private ReadOnly _pingService As PingService
+    Private ReadOnly _winRmService As WinRmService
     Private ReadOnly _storeBindingSource As BindingSource
     Private ReadOnly _settings As AppSettings
+
 
     Private _stores As List(Of StoreInfo)
     Private _operationCancellation As CancellationTokenSource
@@ -24,9 +26,11 @@ Public Class frmMain
 
         _storeConfigService = New StoreConfigService()
         _pingService = New PingService()
+        _winRmService = New WinRmService()
         _storeBindingSource = New BindingSource()
         _settings = New AppSettings()
         _stores = New List(Of StoreInfo)()
+
 
         dgvStores.DataSource = _storeBindingSource
 
@@ -192,10 +196,11 @@ Public Class frmMain
 
             AddLog(
                 String.Format(
-                    "Starting Ping check for {0} store(s). Parallel tasks: {1}, Timeout: {2} ms.",
+                    "Starting connection check for {0} store(s). Parallel tasks: {1}, Ping timeout: {2} ms, WinRM timeout: {3} ms.",
                     selectedStores.Count,
                     _settings.MaxParallelTasks,
-                    _settings.ConnectionTimeoutMilliseconds))
+                    _settings.ConnectionTimeoutMilliseconds,
+                    _settings.CommandTimeoutMilliseconds))
 
             ResetSelectedStoreStatus(selectedStores)
 
@@ -204,12 +209,12 @@ Public Class frmMain
                 _operationCancellation.Token)
 
             lblStatus.Text = "Check completed"
-            AddLog("Ping check completed.")
+            AddLog("Connection check completed.")
 
         Catch ex As OperationCanceledException
 
             lblStatus.Text = "Cancelled"
-            AddLog("Ping check was cancelled by user.")
+            AddLog("Connection check was cancelled by user.")
 
         Catch ex As Exception
 
@@ -269,10 +274,10 @@ Public Class frmMain
     End Function
 
     Private Async Function CheckSingleStoreAsync(
-        ByVal store As StoreInfo,
-        ByVal semaphore As SemaphoreSlim,
-        ByVal cancellationToken As CancellationToken
-    ) As Task
+    ByVal store As StoreInfo,
+    ByVal semaphore As SemaphoreSlim,
+    ByVal cancellationToken As CancellationToken
+) As Task
 
         Await semaphore.WaitAsync(cancellationToken)
 
@@ -280,63 +285,116 @@ Public Class frmMain
             cancellationToken.ThrowIfCancellationRequested()
 
             UpdateStoreRow(
-                store,
-                "Checking...",
-                "Checking")
+            store,
+            "Checking...",
+            "-",
+            "Checking Ping")
 
-            Dim result As PingCheckResult =
-                Await _pingService.CheckAsync(
-                    store.IpAddress,
-                    _settings.ConnectionTimeoutMilliseconds,
-                    cancellationToken)
+            Dim pingResult As PingCheckResult =
+            Await _pingService.CheckAsync(
+                store.IpAddress,
+                _settings.ConnectionTimeoutMilliseconds,
+                cancellationToken)
 
             Dim pingDisplay As String
 
-            If result.Success Then
+            If pingResult.Success Then
                 pingDisplay =
-                    String.Format(
-                        "Online ({0} ms)",
-                        result.ResponseTimeMilliseconds)
+                String.Format(
+                    "Online ({0} ms)",
+                    pingResult.ResponseTimeMilliseconds)
             Else
-                pingDisplay = result.Status
+                pingDisplay = pingResult.Status
+            End If
+
+            AddLog(
+            String.Format(
+                "[{0}/{1}] Ping {2}: {3} - {4}",
+                store.StoreCode,
+                store.ComputerName,
+                store.IpAddress,
+                pingResult.Status,
+                pingResult.Message))
+
+            If Not pingResult.Success Then
+
+                UpdateStoreRow(
+                store,
+                pingDisplay,
+                "Skipped",
+                pingResult.Status)
+
+                Return
+
             End If
 
             UpdateStoreRow(
+            store,
+            pingDisplay,
+            "Checking...",
+            "Checking WinRM")
+
+            Dim winRmResult As WinRmCheckResult =
+            Await _winRmService.CheckAsync(
                 store,
-                pingDisplay,
-                result.Status)
+                _settings.CommandTimeoutMilliseconds,
+                cancellationToken)
+
+            Dim winRmDisplay As String =
+            winRmResult.Status
+
+            If winRmResult.Success AndAlso
+           Not String.IsNullOrWhiteSpace(
+               winRmResult.HostName) Then
+
+                winRmDisplay =
+                String.Format(
+                    "{0} ({1})",
+                    winRmResult.Status,
+                    winRmResult.HostName)
+
+            End If
+
+            UpdateStoreRow(
+            store,
+            pingDisplay,
+            winRmDisplay,
+            winRmResult.Status)
 
             AddLog(
-                String.Format(
-                    "[{0}/{1}] Ping {2}: {3} - {4}",
-                    store.StoreCode,
-                    store.ComputerName,
-                    store.IpAddress,
-                    result.Status,
-                    result.Message))
+            String.Format(
+                "[{0}/{1}] WinRM {2}: {3} - {4} ({5} ms)",
+                store.StoreCode,
+                store.ComputerName,
+                store.IpAddress,
+                winRmResult.Status,
+                winRmResult.Message,
+                winRmResult.DurationMilliseconds))
 
         Catch ex As OperationCanceledException
 
             UpdateStoreRow(
-                store,
-                "Cancelled",
-                "Cancelled")
+            store,
+            "Cancelled",
+            "Cancelled",
+            "Cancelled")
 
             Throw
 
         Catch ex As Exception
 
             UpdateStoreRow(
-                store,
-                "Error",
-                "Error")
+            store,
+            "Error",
+            "Error",
+            "Error")
 
             AddLog(
-                String.Format(
-                    "[{0}/{1}] Ping error: {2}",
-                    store.StoreCode,
-                    store.ComputerName,
-                    ex.Message))
+            String.Format(
+                "[{0}/{1}] Connection check error: {2}",
+                store.StoreCode,
+                store.ComputerName,
+                ex.Message))
 
         Finally
             semaphore.Release()
@@ -345,19 +403,40 @@ Public Class frmMain
     End Function
 
     Private Sub UpdateStoreRow(
-        ByVal store As StoreInfo,
-        ByVal pingStatus As String,
-        ByVal overallStatus As String
-    )
+    ByVal store As StoreInfo,
+    ByVal pingStatus As String,
+    ByVal winRmStatus As String,
+    ByVal overallStatus As String
+)
+
+        If Me.IsDisposed Then
+            Return
+        End If
+
+        If Me.InvokeRequired Then
+
+            Me.BeginInvoke(
+            New Action(
+                Sub()
+                    UpdateStoreRow(
+                        store,
+                        pingStatus,
+                        winRmStatus,
+                        overallStatus)
+                End Sub))
+
+            Return
+        End If
 
         Dim row As DataGridViewRow =
-            FindStoreRow(store)
+        FindStoreRow(store)
 
         If row Is Nothing Then
             Return
         End If
 
         row.Cells("colPing").Value = pingStatus
+        row.Cells("colWinRm").Value = winRmStatus
         row.Cells("colStatus").Value = overallStatus
 
     End Sub

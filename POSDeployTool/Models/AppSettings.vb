@@ -4,8 +4,8 @@
 
         Public Sub New()
             MaxParallelTasks = 10
-            ConnectionTimeoutMilliseconds = 10000
-            CommandTimeoutMilliseconds = 60000
+            ConnectionTimeoutMilliseconds = 5000
+            CommandTimeoutMilliseconds = 15000
             RetryCount = 2
             BackupBeforeDeploy = True
             StopOnError = False
