@@ -74,6 +74,12 @@
     <Compile Include="Models\StoreInfo.vb" />
     <Compile Include="Models\DeploymentRecord.vb" />
     <Compile Include="Models\HealthInfo.vb" />
+    <Compile Include="Models\AppSettings.vb" />
+    <Compile Include="Models\AuditRecord.vb" />
+    <Compile Include="Helpers\AppPaths.vb" />
+    <Compile Include="Helpers\FileLogger.vb" />
+    <Compile Include="Repositories\AppSettingsRepository.vb" />
+    <Compile Include="Infrastructure\AppServices.vb" />
     <Compile Include="Services\StoreConfigService.vb" />
     <Compile Include="Services\CheckResult.vb" />
     <Compile Include="Services\PingService.vb" />
@@ -91,6 +97,8 @@
     <Compile Include="Services\VersionService.vb" />
     <Compile Include="Services\RemoteToolsService.vb" />
     <Compile Include="Services\HealthCheckService.vb" />
+    <Compile Include="Services\AuditService.vb" />
+    <Compile Include="My Project\ApplicationEvents.vb" />
     <Compile Include="My Project\Application.Designer.vb">
       <AutoGen>True</AutoGen>
       <DependentUpon>Application.myapp</DependentUpon>
