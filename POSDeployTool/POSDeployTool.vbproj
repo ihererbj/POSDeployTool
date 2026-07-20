@@ -88,6 +88,7 @@
     <Compile Include="Helpers\AppPaths.vb" />
     <Compile Include="Helpers\FileLogger.vb" />
     <Compile Include="Models\AppSettings.vb" />
+    <Compile Include="Models\PingCheckResult.vb" />
     <Compile Include="Models\StoreInfo.vb" />
     <Compile Include="My Project\AssemblyInfo.vb" />
     <Compile Include="My Project\Application.Designer.vb">
@@ -105,6 +106,7 @@
       <DependentUpon>Settings.settings</DependentUpon>
       <DesignTimeSharedInput>True</DesignTimeSharedInput>
     </Compile>
+    <Compile Include="Services\PingService.vb" />
     <Compile Include="Services\StoreConfigService.vb" />
   </ItemGroup>
   <ItemGroup>
