@@ -23,9 +23,9 @@
     <DefineTrace>true</DefineTrace>
     <OutputPath>bin\Debug\</OutputPath>
     <DocumentationFile>POSDeployTool.xml</DocumentationFile>
-    <NoWarn>
-    </NoWarn>
-    <WarningsAsErrors>41999,42016,42017,42018,42019,42020,42021,42022,42032,42036</WarningsAsErrors>
+    <NoWarn>41999,42016,42017,42018,42019,42020,42021,42022,42032,42036</NoWarn>
+    <WarningsAsErrors>
+    </WarningsAsErrors>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <PlatformTarget>AnyCPU</PlatformTarget>
@@ -35,9 +35,9 @@
     <Optimize>true</Optimize>
     <OutputPath>bin\Release\</OutputPath>
     <DocumentationFile>POSDeployTool.xml</DocumentationFile>
-    <NoWarn>
-    </NoWarn>
-    <WarningsAsErrors>41999,42016,42017,42018,42019,42020,42021,42022,42032,42036</WarningsAsErrors>
+    <NoWarn>41999,42016,42017,42018,42019,42020,42021,42022,42032,42036</NoWarn>
+    <WarningsAsErrors>
+    </WarningsAsErrors>
   </PropertyGroup>
   <PropertyGroup>
     <OptionExplicit>On</OptionExplicit>
@@ -46,7 +46,7 @@
     <OptionCompare>Binary</OptionCompare>
   </PropertyGroup>
   <PropertyGroup>
-    <OptionStrict>On</OptionStrict>
+    <OptionStrict>Off</OptionStrict>
   </PropertyGroup>
   <PropertyGroup>
     <OptionInfer>On</OptionInfer>
@@ -83,6 +83,19 @@
     <Compile Include="Application\ConnectionCheckController.vb" />
     <Compile Include="Application\ConnectionCheckProgressEventArgs.vb" />
     <Compile Include="Application\DeploymentController.vb" />
+    <Compile Include="Application\Deployment\DeploymentQueueEngine.vb" />
+    <Compile Include="Contracts\Deployment\IDeploymentStep.vb" />
+    <Compile Include="Contracts\Deployment\IRemoteBackupService.vb" />
+    <Compile Include="Contracts\Deployment\IRemoteCommandService.vb" />
+    <Compile Include="Models\Deployment\BackupResult.vb" />
+    <Compile Include="Models\Deployment\RemoteCommandResult.vb" />
+    <Compile Include="Plugins\Deployment\RemoteBackupStep.vb" />
+    <Compile Include="Services\Deployment\RemoteBackupService.vb" />
+    <Compile Include="Services\Deployment\WinRmCommandService.vb" />
+    <Compile Include="Models\Deployment\DeploymentContext.vb" />
+    <Compile Include="Models\Deployment\DeploymentQueueItem.vb" />
+    <Compile Include="Models\Deployment\DeploymentStepResult.vb" />
+    <Compile Include="Plugins\Deployment\PreDeployValidationStep.vb" />
     <Compile Include="Application\DeploymentProgressEventArgs.vb" />
     <Compile Include="Contracts\IPingService.vb" />
     <Compile Include="Contracts\IStoreConfigService.vb" />

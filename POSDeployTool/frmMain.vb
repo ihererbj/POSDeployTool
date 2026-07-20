@@ -4,6 +4,7 @@ Imports POSDeployTool.Contracts
 Imports POSDeployTool.Models
 Imports POSDeployTool.Presentation
 Imports POSDeployTool.Services
+Imports POSDeployTool.Services.Deployment
 
 Public Class frmMain
 
@@ -23,7 +24,12 @@ Public Class frmMain
         _settings = New AppSettings()
         _storeConfigService = New StoreConfigService()
         _connectionController = New ConnectionCheckController(New PingService(), New WinRmService(), _settings)
-        _deploymentController = New DeploymentController(New PreDeployValidationService(), _settings.MaxParallelTasks)
+        _deploymentController = New DeploymentController(
+            New PreDeployValidationService(),
+            New RemoteBackupService(
+                New WinRmCommandService()),
+            _settings.MaxParallelTasks,
+            _settings.BackupTimeoutMilliseconds)
         _storeBindingSource = New BindingSource()
         _stores = New List(Of StoreInfo)()
 
@@ -174,9 +180,9 @@ Public Class frmMain
         Dim answer As DialogResult = MessageBox.Show(
             String.Format(
                 "เตรียม Deployment Queue สำหรับ {0} Store หรือไม่?" & Environment.NewLine &
-                "Sprint 2.1 จะตรวจสอบความพร้อมเท่านั้น และยังไม่ Copy หรือแก้ไขไฟล์ปลายทาง",
+                "Sprint 3.2 จะตรวจสอบความพร้อมและสร้าง Backup บนเครื่องปลายทาง" & Environment.NewLine & "ยังไม่ Copy Release Package และยังไม่แก้ไข TargetPath",
                 deployableStores.Count),
-            "Sprint 2.1 - Deployment Foundation",
+            "Sprint 3.2 - Remote Backup Plugin",
             MessageBoxButtons.YesNo,
             MessageBoxIcon.Question)
 
@@ -206,7 +212,7 @@ Public Class frmMain
                     "ยังไม่มีการ Copy หรือแก้ไขไฟล์ปลายทาง",
                     readyCount,
                     deployableStores.Count),
-                "Sprint 2.1",
+                "Sprint 3.2",
                 MessageBoxButtons.OK,
                 If(readyCount = deployableStores.Count, MessageBoxIcon.Information, MessageBoxIcon.Warning))
 
