@@ -1,6 +1,8 @@
 .vs/
 bin/
 obj/
+packages/
 *.user
 *.suo
-Logs/
+*.pdb
+*.log
