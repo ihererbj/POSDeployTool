@@ -1,24 +1,45 @@
 # Visual Studio
 .vs/
-bin/
-obj/
-
-# User-specific files
 *.user
 *.suo
 *.userosscache
 *.sln.docstates
 
-# Build results
+# Build output
+bin/
+obj/
 Debug/
 Release/
+x64/
+x86/
 
 # NuGet
 packages/
+*.nupkg
+*.snupkg
 
 # Logs
 Logs/
+*.log
+
+# Temporary files
+*.tmp
+*.bak
+*.old
+*.orig
+*.cache
 
 # Windows
 Thumbs.db
 Desktop.ini
+
+# ReSharper
+_ReSharper*/
+*.DotSettings.user
+
+# Test results
+TestResults/
+
+
+# Local deployment configuration
+POSDeployTool/Config/stores.json
