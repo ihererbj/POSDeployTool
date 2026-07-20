@@ -9,6 +9,7 @@ Public Class frmMain
 
     Private ReadOnly _storeConfigService As IStoreConfigService
     Private ReadOnly _connectionController As ConnectionCheckController
+    Private ReadOnly _deploymentController As DeploymentController
     Private ReadOnly _storeBindingSource As BindingSource
     Private ReadOnly _settings As AppSettings
 
@@ -22,11 +23,14 @@ Public Class frmMain
         _settings = New AppSettings()
         _storeConfigService = New StoreConfigService()
         _connectionController = New ConnectionCheckController(New PingService(), New WinRmService(), _settings)
+        _deploymentController = New DeploymentController(New PreDeployValidationService(), _settings.MaxParallelTasks)
         _storeBindingSource = New BindingSource()
         _stores = New List(Of StoreInfo)()
 
         AddHandler _connectionController.StoreUpdated, AddressOf ConnectionController_StoreUpdated
         AddHandler _connectionController.LogGenerated, AddressOf ConnectionController_LogGenerated
+        AddHandler _deploymentController.StoreUpdated, AddressOf DeploymentController_StoreUpdated
+        AddHandler _deploymentController.LogGenerated, AddressOf DeploymentController_LogGenerated
 
         dgvStores.DataSource = _storeBindingSource
     End Sub
@@ -148,6 +152,96 @@ Public Class frmMain
         AddLog(e.Message)
     End Sub
 
+    Private Async Sub btnDeploy_Click(sender As Object, e As EventArgs) Handles btnDeploy.Click
+        If _isOperationRunning Then Return
+
+        dgvStores.EndEdit()
+        _storeBindingSource.EndEdit()
+
+        Dim deployableStores As List(Of StoreInfo) = _stores.
+            Where(Function(store) store.Enabled AndAlso store.Selected AndAlso IsDeployable(store)).
+            ToList()
+
+        If deployableStores.Count = 0 Then
+            MessageBox.Show(
+                "ไม่มี Store ที่พร้อม Deploy กรุณาตรวจสอบ Ping และ WinRM ก่อน",
+                "Deploy",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information)
+            Return
+        End If
+
+        Dim answer As DialogResult = MessageBox.Show(
+            String.Format(
+                "เตรียม Deployment Queue สำหรับ {0} Store หรือไม่?" & Environment.NewLine &
+                "Sprint 2.1 จะตรวจสอบความพร้อมเท่านั้น และยังไม่ Copy หรือแก้ไขไฟล์ปลายทาง",
+                deployableStores.Count),
+            "Sprint 2.1 - Deployment Foundation",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Question)
+
+        If answer <> DialogResult.Yes Then Return
+
+        _operationCancellation = New CancellationTokenSource()
+
+        Try
+            _isOperationRunning = True
+            SetOperationState(True, "Preparing deployment queue...")
+            AddLog(String.Format("Preparing deployment queue for {0} store(s).", deployableStores.Count))
+
+            Await _deploymentController.PrepareAsync(deployableStores, _operationCancellation.Token)
+
+            Dim readyCount As Integer = deployableStores.
+                Where(Function(store) store.Deployment IsNot Nothing AndAlso store.Deployment.IsReady).
+                Count()
+
+            lblStatus.Text = String.Format("Deployment preparation completed: {0}/{1} ready", readyCount, deployableStores.Count)
+            AddLog(lblStatus.Text)
+
+            MessageBox.Show(
+                String.Format(
+                    "Validation completed" & Environment.NewLine &
+                    "Ready: {0}" & Environment.NewLine &
+                    "Total: {1}" & Environment.NewLine & Environment.NewLine &
+                    "ยังไม่มีการ Copy หรือแก้ไขไฟล์ปลายทาง",
+                    readyCount,
+                    deployableStores.Count),
+                "Sprint 2.1",
+                MessageBoxButtons.OK,
+                If(readyCount = deployableStores.Count, MessageBoxIcon.Information, MessageBoxIcon.Warning))
+
+        Catch ex As OperationCanceledException
+            lblStatus.Text = "Deployment preparation cancelled"
+            AddLog(lblStatus.Text)
+
+        Catch ex As Exception
+            lblStatus.Text = "Deployment preparation failed"
+            AddLog("Deployment preparation failed: " & ex.ToString())
+            MessageBox.Show(ex.Message, "Deployment Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+
+        Finally
+            _isOperationRunning = False
+            SetOperationState(False, lblStatus.Text)
+
+            If _operationCancellation IsNot Nothing Then
+                _operationCancellation.Dispose()
+                _operationCancellation = Nothing
+            End If
+        End Try
+    End Sub
+
+    Private Sub DeploymentController_StoreUpdated(sender As Object, e As DeploymentProgressEventArgs)
+        RefreshStoreRow(e.Store)
+    End Sub
+
+    Private Sub DeploymentController_LogGenerated(sender As Object, e As DeploymentProgressEventArgs)
+        AddLog(String.Format(
+            "[{0}/{1}] {2}",
+            e.Store.StoreCode,
+            e.Store.ComputerName,
+            e.Message))
+    End Sub
+
     Private Sub RefreshStoreRow(store As StoreInfo)
         If store Is Nothing OrElse IsDisposed OrElse Disposing Then Return
 
@@ -167,7 +261,13 @@ Public Class frmMain
 
         If dgvStores.Columns.Contains("colPing") Then row.Cells("colPing").Value = ConnectionStatusPresenter.BuildPingText(store.Connection)
         If dgvStores.Columns.Contains("colWinRm") Then row.Cells("colWinRm").Value = ConnectionStatusPresenter.BuildWinRmText(store.Connection)
-        If dgvStores.Columns.Contains("colStatus") Then row.Cells("colStatus").Value = ConnectionStatusPresenter.BuildOverallText(store.Connection)
+        If dgvStores.Columns.Contains("colStatus") Then
+            If store.Deployment IsNot Nothing AndAlso store.Deployment.Stage <> DeploymentStage.NotStarted Then
+                row.Cells("colStatus").Value = store.Deployment.StatusText
+            Else
+                row.Cells("colStatus").Value = ConnectionStatusPresenter.BuildOverallText(store.Connection)
+            End If
+        End If
 
         row.DefaultCellStyle.BackColor = ConnectionStatusPresenter.ResolveBackColor(store.Connection)
         row.DefaultCellStyle.ForeColor = SystemColors.ControlText
@@ -187,7 +287,9 @@ Public Class frmMain
     End Function
 
     Private Shared Sub EnsureConnectionState(store As StoreInfo)
-        If store IsNot Nothing AndAlso store.Connection Is Nothing Then store.Connection = New ConnectionState()
+        If store Is Nothing Then Return
+        If store.Connection Is Nothing Then store.Connection = New ConnectionState()
+        If store.Deployment Is Nothing Then store.Deployment = New DeploymentState()
     End Sub
 
     Private Sub ResetSelectedStoreStatus(stores As IEnumerable(Of StoreInfo))
@@ -339,6 +441,8 @@ Public Class frmMain
     Private Sub frmMain_FormClosed(sender As Object, e As FormClosedEventArgs) Handles MyBase.FormClosed
         RemoveHandler _connectionController.StoreUpdated, AddressOf ConnectionController_StoreUpdated
         RemoveHandler _connectionController.LogGenerated, AddressOf ConnectionController_LogGenerated
+        RemoveHandler _deploymentController.StoreUpdated, AddressOf DeploymentController_StoreUpdated
+        RemoveHandler _deploymentController.LogGenerated, AddressOf DeploymentController_LogGenerated
 
         If _operationCancellation IsNot Nothing Then
             _operationCancellation.Dispose()

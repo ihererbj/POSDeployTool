@@ -21,6 +21,7 @@
             BackupPath = "C:\Backup"
 
             Connection = New ConnectionState()
+            Deployment = New DeploymentState()
         End Sub
 
         Public Property Selected As Boolean
@@ -41,6 +42,7 @@
         Public Property BackupPath As String
 
         Public Property Connection As ConnectionState
+        Public Property Deployment As DeploymentState
 
         Public Overrides Function ToString() As String
             Return String.Format(

@@ -82,9 +82,12 @@
   <ItemGroup>
     <Compile Include="Application\ConnectionCheckController.vb" />
     <Compile Include="Application\ConnectionCheckProgressEventArgs.vb" />
+    <Compile Include="Application\DeploymentController.vb" />
+    <Compile Include="Application\DeploymentProgressEventArgs.vb" />
     <Compile Include="Contracts\IPingService.vb" />
     <Compile Include="Contracts\IStoreConfigService.vb" />
     <Compile Include="Contracts\IWinRmService.vb" />
+    <Compile Include="Contracts\IPreDeployValidationService.vb" />
     <Compile Include="Presentation\ConnectionStatusPresenter.vb" />
     <Compile Include="frmMain.vb">
       <SubType>Form</SubType>
@@ -97,6 +100,8 @@
     <Compile Include="Helpers\FileLogger.vb" />
     <Compile Include="Models\AppSettings.vb" />
     <Compile Include="Models\ConnectionState.vb" />
+    <Compile Include="Models\DeploymentState.vb" />
+    <Compile Include="Models\PreDeployValidationResult.vb" />
     <Compile Include="Models\PingCheckResult.vb" />
     <Compile Include="Models\StoreInfo.vb" />
     <Compile Include="Models\WinRmCheckResult.vb" />
@@ -117,6 +122,7 @@
       <DesignTimeSharedInput>True</DesignTimeSharedInput>
     </Compile>
     <Compile Include="Services\PingService.vb" />
+    <Compile Include="Services\PreDeployValidationService.vb" />
     <Compile Include="Services\StoreConfigService.vb" />
     <Compile Include="Services\WinRmService.vb" />
   </ItemGroup>
