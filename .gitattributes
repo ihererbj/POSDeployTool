@@ -1,0 +1,42 @@
+###############################################################################
+# POSDeployTool - Git attributes
+###############################################################################
+
+# Detect text files automatically.
+* text=auto
+
+# Visual Studio / VB.NET source files.
+*.sln           text eol=crlf
+*.vb            text eol=crlf
+*.vbproj        text eol=crlf
+*.config        text eol=crlf
+*.settings      text eol=crlf
+*.resx          text eol=crlf
+*.xml           text eol=crlf
+*.json          text eol=crlf
+*.cmd           text eol=crlf
+*.bat           text eol=crlf
+*.ps1           text eol=crlf
+*.txt           text eol=crlf
+
+# Documentation follows GitHub convention.
+*.md            text eol=lf
+
+# Binary files.
+*.exe           binary
+*.dll           binary
+*.pdb           binary
+*.zip           binary
+*.7z            binary
+*.rar           binary
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.gif           binary
+*.bmp           binary
+*.ico           binary
+*.pdf           binary
+*.bak           binary
+*.mdf           binary
+*.ndf           binary
+*.ldf           binary
